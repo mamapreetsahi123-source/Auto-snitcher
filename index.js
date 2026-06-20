@@ -3,8 +3,8 @@ const { Client, GatewayIntentBits, Partials, SlashCommandBuilder, Routes, REST, 
 const { Client: SelfbotClient } = require('discord-selfbot-v14');
 
 // Your Discord Bot Token (for the slash command)
-const BOT_TOKEN = 'YOUR_DISCORD_BOT_TOKEN_HERE';
-const CLIENT_ID = 'YOUR_DISCORD_BOT_CLIENT_ID_HERE';
+const BOT_TOKEN = 'MTUxNzg4MTU3Mzg0NjgxMDc0NA.GbY6l2.ZP8MLcyiOldodPF4J7ZtQo0_2tbGROLzvcHGX4';
+const CLIENT_ID = '1517881573846810744';
 
 // Store active selfbot sessions in memory (Map<userId, SelfbotClient>)
 const activeMonitors = new Map();
