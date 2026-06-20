@@ -1,21 +1,24 @@
 
-const { Client, GatewayIntentBits, Partials, SlashCommandBuilder, Routes, REST, EmbedBuilder, ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
+require('dotenv').config();
+const { 
+    Client, GatewayIntentBits, Partials, SlashCommandBuilder, 
+    Routes, REST, EmbedBuilder, ModalBuilder, TextInputBuilder, 
+    TextInputStyle, ActionRowBuilder, ButtonBuilder, ButtonStyle 
+} = require('discord.js');
 const { Client: SelfbotClient } = require('discord-selfbot-v14');
 
-// Your Discord Bot Token (for the slash command)
-const BOT_TOKEN = 'MTUxNzg4MTU3Mzg0NjgxMDc0NA.GbY6l2.ZP8MLcyiOldodPF4J7ZtQo0_2tbGROLzvcHGX4';
-const CLIENT_ID = '1517881573846810744';
+// Load secure tokens from environment
+const BOT_TOKEN = process.env.BOT_TOKEN;
+const CLIENT_ID = process.env.CLIENT_ID;
 
-// Store active selfbot sessions in memory (Map<userId, SelfbotClient>)
 const activeMonitors = new Map();
 
-// Initialize Main Discord Bot
 const bot = new Client({
     intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.DirectMessages],
     partials: [Partials.Channel]
 });
 
-// Register /panel Slash Command
+// Register Slash Commands
 const commands = [
     new SlashCommandBuilder()
         .setName('panel')
@@ -30,7 +33,7 @@ const rest = new REST({ version: '10' }).setToken(BOT_TOKEN);
         await rest.put(Routes.applicationCommands(CLIENT_ID), { body: commands });
         console.log('Successfully reloaded application (/) commands.');
     } catch (error) {
-        console.error(error);
+        console.error('Error deploying commands:', error);
     }
 })();
 
@@ -38,12 +41,12 @@ bot.once('ready', () => {
     console.log(`Bot logged in as ${bot.user.tag}`);
 });
 
-// 1. Handle /panel command (Sends buttons)
+// Unified Interaction Management Listener
 bot.on('interactionCreate', async interaction => {
-    if (!interaction.isChatInputCommand()) return;
+    const userId = interaction.user.id;
 
-    if (interaction.commandName === 'panel') {
-        const userId = interaction.user.id;
+    // A. Handle Slash Command
+    if (interaction.isChatInputCommand() && interaction.commandName === 'panel') {
         const isRunning = activeMonitors.has(userId);
 
         const embed = new EmbedBuilder()
@@ -61,95 +64,80 @@ bot.on('interactionCreate', async interaction => {
             .setCustomId('panel_stop_flow')
             .setLabel('Stop DM Alerts')
             .setStyle(ButtonStyle.Danger)
-            .setDisabled(!isRunning); // Gray out if no tracking is active
+            .setDisabled(!isRunning);
 
         const row = new ActionRowBuilder().addComponents(btnStart, btnStop);
-
-        await interaction.reply({ embeds: [embed], components: [row], ephemeral: true });
-    }
-});
-
-// 2. Handle Button Clicks
-bot.on('interactionCreate', async interaction => {
-    if (!interaction.isButton()) return;
-
-    const userId = interaction.user.id;
-
-    // A. Start flow clicked -> Show Modal
-    if (interaction.customId === 'panel_start_flow') {
-        const modal = new ModalBuilder()
-            .setCustomId('log_panel_modal')
-            .setTitle('Target Server Configuration');
-
-        const tokenInput = new TextInputBuilder()
-            .setCustomId('user_token')
-            .setLabel('User Token (Account in Target Server)')
-            .setStyle(TextInputStyle.Short)
-            .setPlaceholder('Paste your Discord account token here')
-            .setRequired(true);
-
-        const serverIdInput = new TextInputBuilder()
-            .setCustomId('server_id')
-            .setLabel('Target Server ID')
-            .setStyle(TextInputStyle.Short)
-            .setPlaceholder('Enter the target server ID')
-            .setRequired(true);
-
-        modal.addComponents(
-            new ActionRowBuilder().addComponents(tokenInput),
-            new ActionRowBuilder().addComponents(serverIdInput)
-        );
-
-        await interaction.showModal(modal);
+        return await interaction.reply({ embeds: [embed], components: [row], ephemeral: true });
     }
 
-    // B. Stop flow clicked -> Kill the userbot
-    if (interaction.customId === 'panel_stop_flow') {
-        if (activeMonitors.has(userId)) {
-            const selfbotToKill = activeMonitors.get(userId);
-            try {
-                selfbotToKill.destroy(); // Properly logs out and terminates the socket
-            } catch (e) {
-                console.error('Error destroying selfbot:', e);
-            }
-            activeMonitors.delete(userId);
+    // B. Handle Button Inputs
+    if (interaction.isButton()) {
+        if (interaction.customId === 'panel_start_flow') {
+            const modal = new ModalBuilder()
+                .setCustomId('log_panel_modal')
+                .setTitle('Target Server Configuration');
 
-            await interaction.reply({ content: '🛑 **Alerts Stopped.** The logging bot tracking your server has been shut down and disconnected.', ephemeral: true });
-        } else {
-            await interaction.reply({ content: '❌ You do not have any active tracking sessions running.', ephemeral: true });
-        }
-    }
-});
+            const tokenInput = new TextInputBuilder()
+                .setCustomId('user_token')
+                .setLabel('User Token (Account in Target Server)')
+                .setStyle(TextInputStyle.Short)
+                .setPlaceholder('Paste your Discord account token here')
+                .setRequired(true);
 
-// 3. Handle Modal Submission (Spawns userbot tracking)
-bot.on('interactionCreate', async interaction => {
-    if (!interaction.isModalSubmit()) return;
-    if (interaction.customId !== 'log_panel_modal') return;
+            const serverIdInput = new TextInputBuilder()
+                .setCustomId('server_id')
+                .setLabel('Target Server ID')
+                .setStyle(TextInputStyle.Short)
+                .setPlaceholder('Enter the target server ID')
+                .setRequired(true);
 
-    const userToken = interaction.fields.getTextInputValue('user_token');
-    const serverId = interaction.fields.getTextInputValue('server_id');
-    const alertUserId = interaction.user.id;
+            modal.addComponents(
+                new ActionRowBuilder().addComponents(tokenInput),
+                new ActionRowBuilder().addComponents(serverIdInput)
+            );
 
-    await interaction.reply({ content: '🔄 Verifying user token and initializing join tracker...', ephemeral: true });
-
-    try {
-        // Safe check: Close old connection if user forgot to stop it
-        if (activeMonitors.has(alertUserId)) {
-            try { activeMonitors.get(alertUserId).destroy(); } catch(e){}
-            activeMonitors.delete(alertUserId);
+            return await interaction.showModal(modal);
         }
 
-        // Initialize User Account Client (Selfbot)
-        const selfbot = new SelfbotClient({ checkUpdate: false });
-        activeMonitors.set(alertUserId, selfbot);
-
-        // Capture Member Join
-        selfbot.on('guildMemberAdd', async (member) => {
-            if (member.guild.id === serverId) {
+        if (interaction.customId === 'panel_stop_flow') {
+            if (activeMonitors.has(userId)) {
+                const selfbotToKill = activeMonitors.get(userId);
                 try {
-                    const alertUser = await bot.users.fetch(alertUserId);
-                    const dmChannel = await alertUser.createDM();
+                    selfbotToKill.destroy(); 
+                } catch (e) {
+                    console.error('Error destroying selfbot:', e);
+                }
+                activeMonitors.delete(userId);
+                return await interaction.reply({ content: '🛑 **Alerts Stopped.** Tracking has been shut down.', ephemeral: true });
+            }
+            return await interaction.reply({ content: '❌ You do not have any active tracking sessions running.', ephemeral: true });
+        }
+    }
 
+    // C. Handle Modal Forms
+    if (interaction.isModalSubmit() && interaction.customId === 'log_panel_modal') {
+        const userToken = interaction.fields.getTextInputValue('user_token');
+        const serverId = interaction.fields.getTextInputValue('server_id');
+
+        await interaction.reply({ content: '🔄 Verifying token and initializing join tracker...', ephemeral: true });
+
+        // Cleanup old connections if they exist
+        if (activeMonitors.has(userId)) {
+            try { activeMonitors.get(userId).destroy(); } catch(e){}
+            activeMonitors.delete(userId);
+        }
+
+        try {
+            // Instantiate Selfbot
+            const selfbot = new SelfbotClient({ checkUpdate: false });
+            activeMonitors.set(userId, selfbot);
+
+            // Listen to joins
+            selfbot.on('guildMemberAdd', async (member) => {
+                if (member.guild.id !== serverId) return;
+                
+                try {
+                    const alertUser = await bot.users.fetch(userId);
                     const embed = new EmbedBuilder()
                         .setTitle('🚨 New Member Alert!')
                         .setDescription(`User **${member.user.tag}** joined the target server.`)
@@ -160,27 +148,25 @@ bot.on('interactionCreate', async interaction => {
                         .setColor(0x00FF00)
                         .setTimestamp();
 
-                    await dmChannel.send({ embeds: [embed] });
+                    await alertUser.send({ embeds: [embed] });
                 } catch (err) {
-                    console.error('Failed to send DM alert:', err);
+                    console.error('Failed to dispatch alert DM:', err);
                 }
-            }
-        });
+            });
 
-        selfbot.once('ready', () => {
-            console.log(`Selfbot logged in as ${selfbot.user.tag} tracking server ${serverId}`);
-            interaction.followUp({ content: `✅ **Setup Complete!** Your token is active. You will receive direct messages whenever someone joins server ID: \`${serverId}\`. Use \`/panel\` again to stop it anytime.`, ephemeral: true });
-        });
+            selfbot.once('ready', () => {
+                console.log(`Selfbot ready: ${selfbot.user.tag} on server ${serverId}`);
+                interaction.followUp({ content: `✅ **Setup Complete!** Running. Alerts will be sent for server \`${serverId}\`.`, ephemeral: true });
+            });
 
-        // Log in to the target user account via token
-        await selfbot.login(userToken);
+            await selfbot.login(userToken);
 
-    } catch (error) {
-        console.error('Login error:', error);
-        if (activeMonitors.has(alertUserId)) activeMonitors.delete(alertUserId);
-        interaction.followUp({ content: '❌ **Configuration Failed.** Check if your token is valid or if your account is locked behind a captcha restriction.', ephemeral: true });
+        } catch (error) {
+            console.error('Initialization error:', error);
+            if (activeMonitors.has(userId)) activeMonitors.delete(userId);
+            return interaction.followUp({ content: '❌ **Configuration Failed.** Check if your token is valid or captcha restricted.', ephemeral: true });
+        }
     }
 });
 
 bot.login(BOT_TOKEN);
-
