@@ -1,0 +1,14 @@
+{
+  "name": "dm-logger-bot",
+  "version": "1.0.0",
+  "description": "Discord Bot with User-Token logging",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "discord-api-types": "^0.37.108",
+    "discord.js": "^14.15.3",
+    "discord-selfbot-v14": "^3.5.3"
+  }
+}
