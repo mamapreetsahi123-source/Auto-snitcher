@@ -1,6 +1,7 @@
 {
   "name": "dm-logger-bot",
   "version": "1.0.0",
+  "description": "Discord Bot with User-Token logging",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
