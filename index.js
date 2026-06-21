@@ -1,4 +1,3 @@
-
 require('dotenv').config();
 const { 
     Client, GatewayIntentBits, Partials, SlashCommandBuilder, 
@@ -10,87 +9,118 @@ const { Client: SelfbotClient } = require('discord.js-selfbot-v13');
 const BOT_TOKEN = process.env.BOT_TOKEN;
 const CLIENT_ID = process.env.CLIENT_ID;
 const ALLOWED_GUILD_ID = "1493598034544820284"; 
-
 const activeMonitors = new Map();
 
 const bot = new Client({
-    intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.DirectMessages],
+    intents: [
+        GatewayIntentBits.Guilds, 
+        GatewayIntentBits.GuildMessages, 
+        GatewayIntentBits.DirectMessages
+    ],
     partials: [Partials.Channel]
 });
 
 const commands = [
     new SlashCommandBuilder()
         .setName('panel')
-        .setDescription('Manage your target server log alerts.')
-].map(command => command.toJSON());
+        .setDescription('Manage alerts.'),
+    new SlashCommandBuilder()
+        .setName('clear')
+        .setDescription('Purge bot DMs.')
+].map(c => c.toJSON());
 
 const rest = new REST({ version: '10' }).setToken(BOT_TOKEN);
 
 (async () => {
     try {
-        console.log('Started refreshing application (/) commands.');
-        await rest.put(Routes.applicationCommands(CLIENT_ID), { body: commands });
-        console.log('Successfully reloaded application (/) commands.');
-    } catch (error) {
-        console.error('Error deploying commands:', error);
-    }
+        await rest.put(
+            Routes.applicationCommands(CLIENT_ID), 
+            { body: commands }
+        );
+        console.log('Commands reloaded.');
+    } catch (e) { console.error(e); }
 })();
 
-bot.once('ready', () => {
-    console.log(`Bot logged in as ${bot.user.tag}`);
-});
+bot.once('ready', () => console.log('Bot ready'));
 
-function getPanelComponents(userId, isRunning) {
-    const btnStart = new ButtonBuilder()
-        .setCustomId(`panel_start_${userId}`)
+function getPanelComponents(uid, run) {
+    const b1 = new ButtonBuilder()
+        .setCustomId(`panel_start_${uid}`)
         .setLabel('Configure & Start')
         .setStyle(ButtonStyle.Primary)
-        .setDisabled(isRunning);
-
-    const btnStop = new ButtonBuilder()
-        .setCustomId(`panel_stop_${userId}`)
+        .setDisabled(run);
+    const b2 = new ButtonBuilder()
+        .setCustomId(`panel_stop_${uid}`)
         .setLabel('Stop DM Alerts')
         .setStyle(ButtonStyle.Danger)
-        .setDisabled(!isRunning);
-
-    return new ActionRowBuilder().addComponents(btnStart, btnStop);
+        .setDisabled(!run);
+    return new ActionRowBuilder().addComponents(b1, b2);
 }
 
-function getPanelEmbed(userId, isRunning) {
+function getPanelEmbed(uid, run) {
     return new EmbedBuilder()
-        .setTitle('⚙️ Join Logger Control Panel')
-        .setDescription(`Manage your automated tracking settings below.\n\n**Owner:** <@${userId}>\n**Current Status:** ${isRunning ? '🟢 Active & Monitoring' : '🔴 Stopped'}`)
-        .setColor(isRunning ? 0x00FF00 : 0xFF0000)
+        .setTitle('⚙️ Control Panel')
+        .setDescription(
+            `Settings below.\n\n` +
+            `**Owner:** <@${uid}>\n` +
+            `**Status:** ${run ? '🟢 Active' : '🔴 Stopped'}`
+        )
+        .setColor(run ? 0x00FF00 : 0xFF0000)
         .setTimestamp();
 }
 
 bot.on('interactionCreate', async interaction => {
     const userId = interaction.user.id;
 
-    if (interaction.isChatInputCommand() && interaction.commandName === 'panel') {
+    if (interaction.isChatInputCommand() && 
+        interaction.commandName === 'clear') {
+        await interaction.deferReply({ ephemeral: true });
+        try {
+            const dm = await interaction.user.createDM();
+            const msgs = await dm.messages.fetch({ limit: 100 });
+            const bMsgs = msgs.filter(m => m.author.id === bot.user.id);
+            if (bMsgs.size === 0) {
+                return await interaction.editReply('✨ No history found.');
+            }
+            let count = 0;
+            for (const msg of bMsgs.values()) {
+                try {
+                    await msg.delete();
+                    count++;
+                    await new Promise(r => setTimeout(r, 600)); 
+                } catch (e) {}
+            }
+            return await interaction.editReply(`🧹 Cleared ${count} logs!`);
+        } catch (e) {
+            return await interaction.editReply('❌ Purge failed.');
+        }
+    }
+
+    if (interaction.isChatInputCommand() && 
+        interaction.commandName === 'panel') {
         if (interaction.guildId !== ALLOWED_GUILD_ID) {
             return await interaction.reply({ 
-                content: '❌ This command cannot be used in this server.', 
+                content: '❌ Wrong server.', 
                 ephemeral: true 
             });
         }
-
-        const isRunning = activeMonitors.has(userId);
-        const embed = getPanelEmbed(userId, isRunning);
-        const row = getPanelComponents(userId, isRunning);
-        
-        return await interaction.reply({ embeds: [embed], components: [row] });
+        const run = activeMonitors.has(userId);
+        return await interaction.reply({ 
+            embeds: [getPanelEmbed(userId, run)], 
+            components: [getPanelComponents(userId, run)] 
+        });
     }
 
     if (interaction.isButton()) {
         const customId = interaction.customId;
-
-        if (customId.startsWith('panel_start_') || customId.startsWith('panel_stop_')) {
-            const panelOwnerId = customId.split('_')[2];
+        if (customId.startsWith('panel_start_') || 
+            customId.startsWith('panel_stop_')) {
+            const parts = customId.split('_');
+            const panelOwnerId = parts[2]; 
 
             if (userId !== panelOwnerId) {
                 return await interaction.reply({ 
-                    content: '❌ **Access Denied.** You cannot interact with a control panel generated by another user.', 
+                    content: '❌ Access Denied.', 
                     ephemeral: true 
                 });
             }
@@ -98,69 +128,60 @@ bot.on('interactionCreate', async interaction => {
             if (customId.startsWith('panel_start_')) {
                 if (activeMonitors.has(userId)) {
                     return await interaction.reply({ 
-                        content: '❌ **Session Conflict.** You already have an active tracker running.', 
+                        content: '❌ Running.', 
                         ephemeral: true 
                     });
                 }
-
                 const modal = new ModalBuilder()
                     .setCustomId(`modal_${interaction.message.id}`) 
-                    .setTitle('Target Server Configuration');
-
-                const tokenInput = new TextInputBuilder()
+                    .setTitle('Configuration');
+                const tIn = new TextInputBuilder()
                     .setCustomId('user_token')
-                    .setLabel('User Token (Account in Target Server)')
+                    .setLabel('User Token')
                     .setStyle(TextInputStyle.Short)
-                    .setPlaceholder('Paste your Discord account token here')
                     .setRequired(true);
-
-                const serverIdInput = new TextInputBuilder()
+                const sIn = new TextInputBuilder()
                     .setCustomId('server_id')
                     .setLabel('Target Server ID')
                     .setStyle(TextInputStyle.Short)
-                    .setPlaceholder('Enter the target server ID')
                     .setRequired(true);
-
-                const welcomeMessageInput = new TextInputBuilder()
+                const wIn = new TextInputBuilder()
                     .setCustomId('welcome_message')
-                    .setLabel('Optional: Custom Welcome DM Message')
+                    .setLabel('Optional Welcome DM')
                     .setStyle(TextInputStyle.Paragraph)
-                    .setPlaceholder('Leave blank if you do not want to send a direct message to joining users...')
                     .setRequired(false);
 
                 modal.addComponents(
-                    new ActionRowBuilder().addComponents(tokenInput),
-                    new ActionRowBuilder().addComponents(serverIdInput),
-                    new ActionRowBuilder().addComponents(welcomeMessageInput)
+                    new ActionRowBuilder().addComponents(tIn),
+                    new ActionRowBuilder().addComponents(sIn),
+                    new ActionRowBuilder().addComponents(wIn)
                 );
-
                 return await interaction.showModal(modal);
             }
 
             if (customId.startsWith('panel_stop_')) {
                 if (activeMonitors.has(userId)) {
-                    const sessionData = activeMonitors.get(userId);
-                    try { sessionData.client.destroy(); } catch (e) {}
+                    const session = activeMonitors.get(userId);
+                    try { session.client.destroy(); } catch (e) {}
                     activeMonitors.delete(userId);
-
-                    const embed = getPanelEmbed(userId, false);
-                    const row = getPanelComponents(userId, false);
-                    
-                    return await interaction.update({ embeds: [embed], components: [row] });
+                    return await interaction.update({ 
+                        embeds: [getPanelEmbed(userId, false)], 
+                        components: [getPanelComponents(userId, false)] 
+                    });
                 }
-                return await interaction.reply({ content: '❌ You do not have any active tracking sessions running.', ephemeral: true });
             }
         }
     }
 
-    if (interaction.isModalSubmit() && interaction.customId.startsWith('modal_')) {
-        const targetMessageId = interaction.customId.split('_')[1];
+    if (interaction.isModalSubmit() && 
+        interaction.customId.startsWith('modal_')) {
+        const parts = interaction.customId.split('_');
+        const targetMessageId = parts[1]; 
         const userToken = interaction.fields.getTextInputValue('user_token');
         const serverId = interaction.fields.getTextInputValue('server_id');
         const welcomeMessage = interaction.fields.getTextInputValue('welcome_message');
 
         await interaction.deferUpdate();
-
         if (activeMonitors.has(userId)) {
             try { activeMonitors.get(userId).client.destroy(); } catch(e){}
             activeMonitors.delete(userId);
@@ -168,63 +189,46 @@ bot.on('interactionCreate', async interaction => {
 
         try {
             const selfbot = new SelfbotClient({ checkUpdate: false });
-            
             activeMonitors.set(userId, {
                 client: selfbot,
-                welcomeMessage: welcomeMessage && welcomeMessage.trim().length > 0 ? welcomeMessage : null
+                welcomeMessage: welcomeMessage && 
+                welcomeMessage.trim().length > 0 ? welcomeMessage : null
             });
 
             selfbot.on('guildMemberAdd', async (member) => {
                 if (member.guild.id !== serverId) return;
-                
                 try {
                     const alertUser = await bot.users.fetch(userId);
-                    const embed = new EmbedBuilder()
-                        .setTitle('🚨 New Member Alert!')
-                        .setDescription(`User **${member.user.tag || member.user.username}** joined the target server.`)
-                        .addFields(
-                            { name: 'User ID', value: member.user.id, inline: true },
-                            { name: 'Account Created', value: `<t:${Math.floor(member.user.createdTimestamp / 1000)}:R>`, inline: true }
-                        )
-                        .setColor(0x00FF00)
-                        .setTimestamp();
+                    const emb = new EmbedBuilder()
+                        .setTitle('🚨 New Join!')
+                        .setDescription(`**${member.user.tag}** joined.`)
+                        .setColor(0x00FF00).setTimestamp();
+                    await alertUser.send({ embeds: [emb] });
+                } catch (err) {}
 
-                    await alertUser.send({ embeds: [embed] });
-                } catch (err) {
-                    console.error('Failed to dispatch alert DM notice:', err);
-                }
-
-                const activeSession = activeMonitors.get(userId);
-                if (activeSession && activeSession.welcomeMessage) {
-                    try {
-                        await member.user.send({ content: activeSession.welcomeMessage });
-                        console.log(`Successfully sent custom welcome DM to user: ${member.user.id}`);
-                    } catch (dmError) {
-                        console.error(`Unable to send direct message to joining member ${member.user.id}:`, dmError);
-                    }
+                const session = activeMonitors.get(userId);
+                if (session && session.welcomeMessage) {
+                    try { 
+                        await member.user.send({ 
+                            content: session.welcomeMessage 
+                        }); 
+                    } catch (e) {}
                 }
             });
 
             selfbot.once('ready', async () => {
-                console.log(`Selfbot ready: ${selfbot.user.tag} active monitoring on server: ${serverId}`);
-                
                 try {
-                    const targetChannel = await bot.channels.fetch(interaction.channelId);
-                    const originalMessage = await targetChannel.messages.fetch(targetMessageId);
-                    
-                    const updatedEmbed = getPanelEmbed(userId, true);
-                    const updatedRow = getPanelComponents(userId, true);
-
-                    await originalMessage.edit({ embeds: [updatedEmbed], components: [updatedRow] });
-                } catch (editError) {
-                    console.error('Failed to update control panel message interface frame:', editError);
-                }
+                    const chan = await bot.channels.fetch(interaction.channelId);
+                    const msg = await chan.messages.fetch(targetMessageId);
+                    await msg.edit({ 
+                        embeds: [getPanelEmbed(userId, true)], 
+                        components: [getPanelComponents(userId, true)] 
+                    });
+                } catch (e) {}
             });
 
             await selfbot.login(userToken);
-
         } catch (error) {
-            console.error('Selfbot Initialization error:', error);
             if (activeMonitors.has(userId)) activeMonitors.delete(userId);
         }
     }
