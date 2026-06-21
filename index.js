@@ -199,10 +199,17 @@ bot.on('interactionCreate', async interaction => {
                 if (member.guild.id !== serverId) return;
                 try {
                     const alertUser = await bot.users.fetch(userId);
+                    
+                    // Formatted description with easy tap-to-copy code wrappers
                     const emb = new EmbedBuilder()
                         .setTitle('🚨 New Join!')
-                        .setDescription(`**${member.user.tag}** joined.`)
-                        .setColor(0x00FF00).setTimestamp();
+                        .setDescription(
+                            `**Username:**\n\`${member.user.username}\`\n\n` +
+                            `**User ID:**\n\`${member.user.id}\``
+                        )
+                        .setColor(0x00FF00)
+                        .setTimestamp();
+                        
                     await alertUser.send({ embeds: [emb] });
                 } catch (err) {}
 
