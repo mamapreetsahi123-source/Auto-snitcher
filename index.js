@@ -5,21 +5,21 @@ const {
     Routes, REST, EmbedBuilder, ModalBuilder, TextInputBuilder, 
     TextInputStyle, ActionRowBuilder, ButtonBuilder, ButtonStyle 
 } = require('discord.js');
-const { Client: SelfbotClient } = require('discord.js-selfbot-v14');
+// v14 నుండి పని చేసే v13 కి మార్చబడింది
+const { Client: SelfbotClient } = require('discord.js-selfbot-v13');
 
-// Load environment variables set in the Railway configuration tab
 const BOT_TOKEN = process.env.BOT_TOKEN;
 const CLIENT_ID = process.env.CLIENT_ID;
 
 const activeMonitors = new Map();
 
-// Initialize the primary Application Bot client
+// మెయిన్ బాట్ ఇనిషియలైజేషన్
 const bot = new Client({
     intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.DirectMessages],
     partials: [Partials.Channel]
 });
 
-// Setup application slash commands formatting structure
+// స్లాష్ కమాండ్ స్ట్రక్చర్
 const commands = [
     new SlashCommandBuilder()
         .setName('panel')
@@ -42,11 +42,11 @@ bot.once('ready', () => {
     console.log(`Bot logged in as ${bot.user.tag}`);
 });
 
-// Unified Component & Interface Interaction Listener
+// ఇంటరాక్షన్ లిజనర్
 bot.on('interactionCreate', async interaction => {
     const userId = interaction.user.id;
 
-    // A. Handle /panel slash commands
+    // A. /panel కమాండ్ హ్యాండ్లింగ్
     if (interaction.isChatInputCommand() && interaction.commandName === 'panel') {
         const isRunning = activeMonitors.has(userId);
 
@@ -71,7 +71,7 @@ bot.on('interactionCreate', async interaction => {
         return await interaction.reply({ embeds: [embed], components: [row], ephemeral: true });
     }
 
-    // B. Handle UI Component Buttons 
+    // B. బటన్ క్లిక్స్ హ్యాండ్లింగ్
     if (interaction.isButton()) {
         if (interaction.customId === 'panel_start_flow') {
             const modal = new ModalBuilder()
@@ -115,31 +115,26 @@ bot.on('interactionCreate', async interaction => {
         }
     }
 
-    // C. Handle Input Modal Submissions
+    // C. మోడల్ సబ్మిషన్ హ్యాండ్లింగ్
     if (interaction.isModalSubmit() && interaction.customId === 'log_panel_modal') {
         const userToken = interaction.fields.getTextInputValue('user_token');
         const serverId = interaction.fields.getTextInputValue('server_id');
 
+        // మొదటి రెస్పాన్స్ - ఇంటరాక్షన్ ఎక్స్‌పైర్ అవ్వకుండా ఉండటానికి
         await interaction.reply({ content: '🔄 Verifying token and initializing join tracker...', ephemeral: true });
 
-        // Terminate existing processes for user to prevent overlapping hooks
+        // పాత సెషన్లు ఏవైనా ఉంటే క్లోజ్ చేయడం
         if (activeMonitors.has(userId)) {
             try { activeMonitors.get(userId).destroy(); } catch(e){}
             activeMonitors.delete(userId);
         }
 
         try {
-            // Initialize selfbot configuration with target listener intents enabled
-            const selfbot = new SelfbotClient({ 
-                checkUpdate: false,
-                intents: [
-                    GatewayIntentBits.Guilds,
-                    GatewayIntentBits.GuildMembers
-                ]
-            });
+            // v13 సెల్ఫ్‌బాట్ క్లయింట్ కన్ఫిగరేషన్
+            const selfbot = new SelfbotClient({ checkUpdate: false });
             activeMonitors.set(userId, selfbot);
 
-            // Hook target member join event payload handler
+            // యూజర్ సర్వర్ లో జాయిన్ అయినప్పుడు ట్రిగ్గర్ అయ్యే ఈవెంట్
             selfbot.on('guildMemberAdd', async (member) => {
                 if (member.guild.id !== serverId) return;
                 
@@ -147,7 +142,7 @@ bot.on('interactionCreate', async interaction => {
                     const alertUser = await bot.users.fetch(userId);
                     const embed = new EmbedBuilder()
                         .setTitle('🚨 New Member Alert!')
-                        .setDescription(`User **${member.user.tag}** joined the target server.`)
+                        .setDescription(`User **${member.user.tag || member.user.username}** joined the target server.`)
                         .addFields(
                             { name: 'User ID', value: member.user.id, inline: true },
                             { name: 'Account Created', value: `<t:${Math.floor(member.user.createdTimestamp / 1000)}:R>`, inline: true }
@@ -161,9 +156,10 @@ bot.on('interactionCreate', async interaction => {
                 }
             });
 
-            selfbot.once('ready', () => {
+            selfbot.once('ready', async () => {
                 console.log(`Selfbot ready: ${selfbot.user.tag} active monitoring on server: ${serverId}`);
-                interaction.followUp({ content: `✅ **Setup Complete!** Automated tracking is live. DM notifications activated for server ID: \`${serverId}\`.`, ephemeral: true });
+                // ఎర్రర్ రాకుండా ఉండటానికి editReply ఉపయోగించబడింది
+                await interaction.editReply({ content: `✅ **Setup Complete!** Automated tracking is live. DM notifications activated for server ID: \`${serverId}\`.` });
             });
 
             await selfbot.login(userToken);
@@ -171,7 +167,7 @@ bot.on('interactionCreate', async interaction => {
         } catch (error) {
             console.error('Selfbot Initialization error:', error);
             if (activeMonitors.has(userId)) activeMonitors.delete(userId);
-            return interaction.followUp({ content: '❌ **Configuration Failed.** Double check if your token is valid or locked behind captcha verification rules.', ephemeral: true });
+            await interaction.editReply({ content: '❌ **Configuration Failed.** Double check if your token is valid or locked behind captcha verification rules.' });
         }
     }
 });
