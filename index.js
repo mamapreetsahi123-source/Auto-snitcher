@@ -145,16 +145,10 @@ bot.on('interactionCreate', async interaction => {
                     .setLabel('Target Server ID')
                     .setStyle(TextInputStyle.Short)
                     .setRequired(true);
-                const wIn = new TextInputBuilder()
-                    .setCustomId('welcome_message')
-                    .setLabel('Optional Welcome DM ({user} = Name)')
-                    .setStyle(TextInputStyle.Paragraph)
-                    .setRequired(false);
 
                 modal.addComponents(
                     new ActionRowBuilder().addComponents(tIn),
-                    new ActionRowBuilder().addComponents(sIn),
-                    new ActionRowBuilder().addComponents(wIn)
+                    new ActionRowBuilder().addComponents(sIn)
                 );
                 return await interaction.showModal(modal);
             }
@@ -162,7 +156,7 @@ bot.on('interactionCreate', async interaction => {
             if (customId.startsWith('panel_stop_')) {
                 if (activeMonitors.has(userId)) {
                     const session = activeMonitors.get(userId);
-                    try { session.client.destroy(); } catch (e) {}
+                    try { session.destroy(); } catch (e) {}
                     activeMonitors.delete(userId);
                     return await interaction.update({ 
                         embeds: [getPanelEmbed(userId, false)], 
@@ -179,21 +173,16 @@ bot.on('interactionCreate', async interaction => {
         const targetMessageId = parts[1]; 
         const userToken = interaction.fields.getTextInputValue('user_token');
         const serverId = interaction.fields.getTextInputValue('server_id');
-        const welcomeMessage = interaction.fields.getTextInputValue('welcome_message');
 
         await interaction.deferUpdate();
         if (activeMonitors.has(userId)) {
-            try { activeMonitors.get(userId).client.destroy(); } catch(e){}
+            try { activeMonitors.get(userId).destroy(); } catch(e){}
             activeMonitors.delete(userId);
         }
 
         try {
             const selfbot = new SelfbotClient({ checkUpdate: false });
-            activeMonitors.set(userId, {
-                client: selfbot,
-                welcomeMessage: welcomeMessage && 
-                welcomeMessage.trim().length > 0 ? welcomeMessage : null
-            });
+            activeMonitors.set(userId, selfbot);
 
             selfbot.on('guildMemberAdd', async (member) => {
                 if (member.guild.id !== serverId) return;
@@ -209,24 +198,6 @@ bot.on('interactionCreate', async interaction => {
                         .setTimestamp();
                     await alertUser.send({ embeds: [emb] });
                 } catch (err) {}
-
-                const session = activeMonitors.get(userId);
-                if (session && session.welcomeMessage) {
-                    // Safety timeout delay to bypass quick automation security blocks
-                    await new Promise(resolve => setTimeout(resolve, 2500));
-                    
-                    try { 
-                        // Automatically replaces any instance of {user} with their actual name string
-                        let customizedText = session.welcomeMessage.replace(
-                            /{user}/g, 
-                            member.user.username
-                        );
-                        
-                        await member.user.send({ content: customizedText }); 
-                    } catch (e) {
-                        console.log(`Failed to message joining member (DMs Closed or Blocked).`);
-                    }
-                }
             });
 
             selfbot.once('ready', async () => {
