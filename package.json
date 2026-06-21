@@ -9,7 +9,7 @@
   "dependencies": {
     "discord-api-types": "latest",
     "discord.js": "^14.15.3",
-    "discord.js-selfbot-v14": "latest",
+    "discord.js-selfbot-v13": "^3.4.5",
     "dotenv": "latest"
   }
 }
