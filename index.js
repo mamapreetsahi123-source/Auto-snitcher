@@ -147,7 +147,7 @@ bot.on('interactionCreate', async interaction => {
                     .setRequired(true);
                 const wIn = new TextInputBuilder()
                     .setCustomId('welcome_message')
-                    .setLabel('Optional Welcome DM')
+                    .setLabel('Optional Welcome DM ({user} = Name)')
                     .setStyle(TextInputStyle.Paragraph)
                     .setRequired(false);
 
@@ -199,8 +199,6 @@ bot.on('interactionCreate', async interaction => {
                 if (member.guild.id !== serverId) return;
                 try {
                     const alertUser = await bot.users.fetch(userId);
-                    
-                    // Formatted description with easy tap-to-copy code wrappers
                     const emb = new EmbedBuilder()
                         .setTitle('🚨 New Join!')
                         .setDescription(
@@ -209,17 +207,25 @@ bot.on('interactionCreate', async interaction => {
                         )
                         .setColor(0x00FF00)
                         .setTimestamp();
-                        
                     await alertUser.send({ embeds: [emb] });
                 } catch (err) {}
 
                 const session = activeMonitors.get(userId);
                 if (session && session.welcomeMessage) {
+                    // Safety timeout delay to bypass quick automation security blocks
+                    await new Promise(resolve => setTimeout(resolve, 2500));
+                    
                     try { 
-                        await member.user.send({ 
-                            content: session.welcomeMessage 
-                        }); 
-                    } catch (e) {}
+                        // Automatically replaces any instance of {user} with their actual name string
+                        let customizedText = session.welcomeMessage.replace(
+                            /{user}/g, 
+                            member.user.username
+                        );
+                        
+                        await member.user.send({ content: customizedText }); 
+                    } catch (e) {
+                        console.log(`Failed to message joining member (DMs Closed or Blocked).`);
+                    }
                 }
             });
 
