@@ -5,20 +5,21 @@ const {
     Routes, REST, EmbedBuilder, ModalBuilder, TextInputBuilder, 
     TextInputStyle, ActionRowBuilder, ButtonBuilder, ButtonStyle 
 } = require('discord.js');
-const { Client: SelfbotClient } = require('discord-selfbot-v14');
+const { Client: SelfbotClient } = require('discord.js-selfbot-v14');
 
-// Load secure tokens from environment
+// Load environment variables set in the Railway configuration tab
 const BOT_TOKEN = process.env.BOT_TOKEN;
 const CLIENT_ID = process.env.CLIENT_ID;
 
 const activeMonitors = new Map();
 
+// Initialize the primary Application Bot client
 const bot = new Client({
     intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.DirectMessages],
     partials: [Partials.Channel]
 });
 
-// Register Slash Commands
+// Setup application slash commands formatting structure
 const commands = [
     new SlashCommandBuilder()
         .setName('panel')
@@ -41,11 +42,11 @@ bot.once('ready', () => {
     console.log(`Bot logged in as ${bot.user.tag}`);
 });
 
-// Unified Interaction Management Listener
+// Unified Component & Interface Interaction Listener
 bot.on('interactionCreate', async interaction => {
     const userId = interaction.user.id;
 
-    // A. Handle Slash Command
+    // A. Handle /panel slash commands
     if (interaction.isChatInputCommand() && interaction.commandName === 'panel') {
         const isRunning = activeMonitors.has(userId);
 
@@ -70,7 +71,7 @@ bot.on('interactionCreate', async interaction => {
         return await interaction.reply({ embeds: [embed], components: [row], ephemeral: true });
     }
 
-    // B. Handle Button Inputs
+    // B. Handle UI Component Buttons 
     if (interaction.isButton()) {
         if (interaction.customId === 'panel_start_flow') {
             const modal = new ModalBuilder()
@@ -105,34 +106,40 @@ bot.on('interactionCreate', async interaction => {
                 try {
                     selfbotToKill.destroy(); 
                 } catch (e) {
-                    console.error('Error destroying selfbot:', e);
+                    console.error('Error destroying selfbot instance session:', e);
                 }
                 activeMonitors.delete(userId);
-                return await interaction.reply({ content: '🛑 **Alerts Stopped.** Tracking has been shut down.', ephemeral: true });
+                return await interaction.reply({ content: '🛑 **Alerts Stopped.** Tracking session disconnected.', ephemeral: true });
             }
             return await interaction.reply({ content: '❌ You do not have any active tracking sessions running.', ephemeral: true });
         }
     }
 
-    // C. Handle Modal Forms
+    // C. Handle Input Modal Submissions
     if (interaction.isModalSubmit() && interaction.customId === 'log_panel_modal') {
         const userToken = interaction.fields.getTextInputValue('user_token');
         const serverId = interaction.fields.getTextInputValue('server_id');
 
         await interaction.reply({ content: '🔄 Verifying token and initializing join tracker...', ephemeral: true });
 
-        // Cleanup old connections if they exist
+        // Terminate existing processes for user to prevent overlapping hooks
         if (activeMonitors.has(userId)) {
             try { activeMonitors.get(userId).destroy(); } catch(e){}
             activeMonitors.delete(userId);
         }
 
         try {
-            // Instantiate Selfbot
-            const selfbot = new SelfbotClient({ checkUpdate: false });
+            // Initialize selfbot configuration with target listener intents enabled
+            const selfbot = new SelfbotClient({ 
+                checkUpdate: false,
+                intents: [
+                    GatewayIntentBits.Guilds,
+                    GatewayIntentBits.GuildMembers
+                ]
+            });
             activeMonitors.set(userId, selfbot);
 
-            // Listen to joins
+            // Hook target member join event payload handler
             selfbot.on('guildMemberAdd', async (member) => {
                 if (member.guild.id !== serverId) return;
                 
@@ -150,21 +157,21 @@ bot.on('interactionCreate', async interaction => {
 
                     await alertUser.send({ embeds: [embed] });
                 } catch (err) {
-                    console.error('Failed to dispatch alert DM:', err);
+                    console.error('Failed to dispatch alert DM notice:', err);
                 }
             });
 
             selfbot.once('ready', () => {
-                console.log(`Selfbot ready: ${selfbot.user.tag} on server ${serverId}`);
-                interaction.followUp({ content: `✅ **Setup Complete!** Running. Alerts will be sent for server \`${serverId}\`.`, ephemeral: true });
+                console.log(`Selfbot ready: ${selfbot.user.tag} active monitoring on server: ${serverId}`);
+                interaction.followUp({ content: `✅ **Setup Complete!** Automated tracking is live. DM notifications activated for server ID: \`${serverId}\`.`, ephemeral: true });
             });
 
             await selfbot.login(userToken);
 
         } catch (error) {
-            console.error('Initialization error:', error);
+            console.error('Selfbot Initialization error:', error);
             if (activeMonitors.has(userId)) activeMonitors.delete(userId);
-            return interaction.followUp({ content: '❌ **Configuration Failed.** Check if your token is valid or captcha restricted.', ephemeral: true });
+            return interaction.followUp({ content: '❌ **Configuration Failed.** Double check if your token is valid or locked behind captcha verification rules.', ephemeral: true });
         }
     }
 });
