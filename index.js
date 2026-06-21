@@ -5,7 +5,6 @@ const {
     Routes, REST, EmbedBuilder, ModalBuilder, TextInputBuilder, 
     TextInputStyle, ActionRowBuilder, ButtonBuilder, ButtonStyle 
 } = require('discord.js');
-// Changed to the working v13 selfbot library to prevent module errors
 const { Client: SelfbotClient } = require('discord.js-selfbot-v13');
 
 const BOT_TOKEN = process.env.BOT_TOKEN;
@@ -13,13 +12,11 @@ const CLIENT_ID = process.env.CLIENT_ID;
 
 const activeMonitors = new Map();
 
-// Initialize the primary application bot client
 const bot = new Client({
     intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.DirectMessages],
     partials: [Partials.Channel]
 });
 
-// Setup slash command structure
 const commands = [
     new SlashCommandBuilder()
         .setName('panel')
@@ -42,99 +39,121 @@ bot.once('ready', () => {
     console.log(`Bot logged in as ${bot.user.tag}`);
 });
 
-// Interaction listener
 bot.on('interactionCreate', async interaction => {
     const userId = interaction.user.id;
 
-    // A. Handle /panel slash command
+    // A. Handle /panel command (Made PUBLIC)
     if (interaction.isChatInputCommand() && interaction.commandName === 'panel') {
         const isRunning = activeMonitors.has(userId);
 
+        // Functional visual anchor mapping for the embed layout
         const embed = new EmbedBuilder()
             .setTitle('⚙️ Join Logger Control Panel')
-            .setDescription(`Manage your automated tracking settings below.\n\n**Current Status:** ${isRunning ? '🟢 Active & Monitoring' : '🔴 Stopped'}`)
+            .setDescription(`Manage your automated tracking settings below.\n\n**Owner:** <@${userId}>\n**Current Status:** ${isRunning ? '🟢 Active & Monitoring' : '🔴 Stopped'}`)
             .setColor(isRunning ? 0x00FF00 : 0xFF0000)
             .setTimestamp();
 
+        // Storing the owner ID inside the custom ID so we can validate it later
         const btnStart = new ButtonBuilder()
-            .setCustomId('panel_start_flow')
+            .setCustomId(`panel_start_${userId}`)
             .setLabel('Configure & Start')
             .setStyle(ButtonStyle.Primary);
 
         const btnStop = new ButtonBuilder()
-            .setCustomId('panel_stop_flow')
+            .setCustomId(`panel_stop_${userId}`)
             .setLabel('Stop DM Alerts')
             .setStyle(ButtonStyle.Danger)
             .setDisabled(!isRunning);
 
         const row = new ActionRowBuilder().addComponents(btnStart, btnStop);
-        return await interaction.reply({ embeds: [embed], components: [row], ephemeral: true });
+        
+        // Removed ephemeral tag so the message is sent publicly to the channel
+        return await interaction.reply({ embeds: [embed], components: [row] });
     }
 
-    // B. Handle button components clicks
+    // B. Handle UI Component Buttons (With Interference & Duplication Validation)
     if (interaction.isButton()) {
-        if (interaction.customId === 'panel_start_flow') {
-            const modal = new ModalBuilder()
-                .setCustomId('log_panel_modal')
-                .setTitle('Target Server Configuration');
+        const customId = interaction.customId;
 
-            const tokenInput = new TextInputBuilder()
-                .setCustomId('user_token')
-                .setLabel('User Token (Account in Target Server)')
-                .setStyle(TextInputStyle.Short)
-                .setPlaceholder('Paste your Discord account token here')
-                .setRequired(true);
+        if (customId.startsWith('panel_start_') || customId.startsWith('panel_stop_')) {
+            // Extract the original command executor's ID from the button ID structure
+            const panelOwnerId = customId.split('_')[2];
 
-            const serverIdInput = new TextInputBuilder()
-                .setCustomId('server_id')
-                .setLabel('Target Server ID')
-                .setStyle(TextInputStyle.Short)
-                .setPlaceholder('Enter the target server ID')
-                .setRequired(true);
-
-            modal.addComponents(
-                new ActionRowBuilder().addComponents(tokenInput),
-                new ActionRowBuilder().addComponents(serverIdInput)
-            );
-
-            return await interaction.showModal(modal);
-        }
-
-        if (interaction.customId === 'panel_stop_flow') {
-            if (activeMonitors.has(userId)) {
-                const selfbotToKill = activeMonitors.get(userId);
-                try {
-                    selfbotToKill.destroy(); 
-                } catch (e) {
-                    console.error('Error destroying selfbot instance session:', e);
-                }
-                activeMonitors.delete(userId);
-                return await interaction.reply({ content: '🛑 **Alerts Stopped.** Tracking session disconnected.', ephemeral: true });
+            // Rule 1: Stop other users from interfering with the panel
+            if (userId !== panelOwnerId) {
+                return await interaction.reply({ 
+                    content: '❌ **Access Denied.** You cannot interact with a control panel generated by another user.', 
+                    ephemeral: true 
+                });
             }
-            return await interaction.reply({ content: '❌ You do not have any active tracking sessions running.', ephemeral: true });
+
+            // Rule 2: Prevent creating a duplicate second session if one is already active
+            if (customId.startsWith('panel_start_')) {
+                if (activeMonitors.has(userId)) {
+                    return await interaction.reply({ 
+                        content: '❌ **Session Conflict.** You already have an active tracker running. Turn off your current session via your dashboard before starting a new configuration.', 
+                        ephemeral: true 
+                    });
+                }
+
+                const modal = new ModalBuilder()
+                    .setCustomId('log_panel_modal')
+                    .setTitle('Target Server Configuration');
+
+                const tokenInput = new TextInputBuilder()
+                    .setCustomId('user_token')
+                    .setLabel('User Token (Account in Target Server)')
+                    .setStyle(TextInputStyle.Short)
+                    .setPlaceholder('Paste your Discord account token here')
+                    .setRequired(true);
+
+                const serverIdInput = new TextInputBuilder()
+                    .setCustomId('server_id')
+                    .setLabel('Target Server ID')
+                    .setStyle(TextInputStyle.Short)
+                    .setPlaceholder('Enter the target server ID')
+                    .setRequired(true);
+
+                modal.addComponents(
+                    new ActionRowBuilder().addComponents(tokenInput),
+                    new ActionRowBuilder().addComponents(serverIdInput)
+                );
+
+                return await interaction.showModal(modal);
+            }
+
+            if (customId.startsWith('panel_stop_')) {
+                if (activeMonitors.has(userId)) {
+                    const selfbotToKill = activeMonitors.get(userId);
+                    try {
+                        selfbotToKill.destroy(); 
+                    } catch (e) {
+                        console.error('Error destroying selfbot instance session:', e);
+                    }
+                    activeMonitors.delete(userId);
+                    return await interaction.reply({ content: '🛑 **Alerts Stopped.** Tracking session disconnected.', ephemeral: true });
+                }
+                return await interaction.reply({ content: '❌ You do not have any active tracking sessions running.', ephemeral: true });
+            }
         }
     }
 
-    // C. Handle modal form submissions
+    // C. Handle Input Modal Submissions
     if (interaction.isModalSubmit() && interaction.customId === 'log_panel_modal') {
         const userToken = interaction.fields.getTextInputValue('user_token');
         const serverId = interaction.fields.getTextInputValue('server_id');
 
-        // Initial response to reserve interaction token and prevent expiration timeout
         await interaction.reply({ content: '🔄 Verifying token and initializing join tracker...', ephemeral: true });
 
-        // Terminate existing processes for the user to prevent overlapping instances
         if (activeMonitors.has(userId)) {
             try { activeMonitors.get(userId).destroy(); } catch(e){}
             activeMonitors.delete(userId);
         }
 
         try {
-            // Instantiate v13 selfbot configuration
             const selfbot = new SelfbotClient({ checkUpdate: false });
             activeMonitors.set(userId, selfbot);
 
-            // Hook target member join event payload handler
             selfbot.on('guildMemberAdd', async (member) => {
                 if (member.guild.id !== serverId) return;
                 
@@ -158,7 +177,6 @@ bot.on('interactionCreate', async interaction => {
 
             selfbot.once('ready', async () => {
                 console.log(`Selfbot ready: ${selfbot.user.tag} active monitoring on server: ${serverId}`);
-                // Uses editReply to safely modify the initial response window state
                 await interaction.editReply({ content: `✅ **Setup Complete!** Automated tracking is live. DM notifications activated for server ID: \`${serverId}\`.` });
             });
 
