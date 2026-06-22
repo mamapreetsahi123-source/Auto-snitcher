@@ -176,7 +176,6 @@ bot.on('interactionCreate', async interaction => {
 
         await interaction.deferUpdate();
         
-        // IMMEDIATE UPDATE: Flips panel to active state right when Submit is pressed
         try {
             const chan = await bot.channels.fetch(interaction.channelId);
             const msg = await chan.messages.fetch(targetMessageId);
@@ -185,7 +184,7 @@ bot.on('interactionCreate', async interaction => {
                 components: [getPanelComponents(userId, true)] 
             });
         } catch (editError) { 
-            console.error('Immediate panel edit failed:', editError); 
+            console.error(editError); 
         }
 
         if (activeMonitors.has(userId)) {
@@ -195,8 +194,7 @@ bot.on('interactionCreate', async interaction => {
 
         try {
             const selfbot = new SelfbotClient({ checkUpdate: false });
-            activeMonitors.set(userId, selfbot);
-
+            
             selfbot.on('guildMemberAdd', async (member) => {
                 if (member.guild.id !== serverId) return;
                 try {
@@ -213,16 +211,34 @@ bot.on('interactionCreate', async interaction => {
                 } catch (err) {}
             });
 
-            selfbot.once('ready', () => {
-                console.log(`Selfbot logged in and active for server: ${serverId}`);
+            selfbot.once('ready', async () => {
+                try {
+                    const targetGuild = await selfbot.guilds.fetch(serverId);
+                    if (!targetGuild) throw new Error('Guild not found');
+                    console.log(`Monitoring: ${serverId}`);
+                } catch (guildError) {
+                    selfbot.destroy();
+                    activeMonitors.delete(userId);
+                    try {
+                        const chan = await bot.channels.fetch(interaction.channelId);
+                        const msg = await chan.messages.fetch(targetMessageId);
+                        await msg.edit({ 
+                            embeds: [getPanelEmbed(userId, false)], 
+                            components: [getPanelComponents(userId, false)] 
+                        });
+                        await interaction.followUp({ 
+                            content: '❌ **you have filled wrong server id or token**', 
+                            ephemeral: true 
+                        });
+                    } catch (e) { console.error(e); }
+                }
             });
 
+            activeMonitors.set(userId, selfbot);
             await selfbot.login(userToken);
-        } catch (error) {
-            console.error('Selfbot login failed:', error);
-            if (activeMonitors.has(userId)) activeMonitors.delete(userId);
             
-            // Revert panel to stopped state if the login fails or crashes
+        } catch (error) {
+            if (activeMonitors.has(userId)) activeMonitors.delete(userId);
             try {
                 const chan = await bot.channels.fetch(interaction.channelId);
                 const msg = await chan.messages.fetch(targetMessageId);
@@ -230,7 +246,11 @@ bot.on('interactionCreate', async interaction => {
                     embeds: [getPanelEmbed(userId, false)], 
                     components: [getPanelComponents(userId, false)] 
                 });
-            } catch (revertError) { console.error(revertError); }
+                await interaction.followUp({ 
+                    content: '❌ **you have filled wrong server id or token**', 
+                    ephemeral: true 
+                });
+            } catch (e) { console.error(e); }
         }
     }
 });
