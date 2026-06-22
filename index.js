@@ -8,7 +8,7 @@ const { Client: SelfbotClient } = require('discord.js-selfbot-v13');
 
 const BOT_TOKEN = process.env.BOT_TOKEN;
 const CLIENT_ID = process.env.CLIENT_ID;
-const ALLOWED_CHANNEL_ID = "1518442820875194398"; // Locked to specific channel ID
+const ALLOWED_CHANNEL_ID = "1518442820875194398"; 
 const activeMonitors = new Map();
 
 const bot = new Client({
@@ -63,7 +63,7 @@ function getPanelEmbed(uid, run) {
         .setDescription(
             `Settings below.\n\n` +
             `**Owner:** <@${uid}>\n` +
-            `**Status:** ${run ? '🟢 Active' : '🔴 Stopped'}`
+            `**Status:** ${run ? '🟢 Active & Monitoring' : '🔴 Stopped'}`
         )
         .setColor(run ? 0x00FF00 : 0xFF0000)
         .setTimestamp();
@@ -98,7 +98,6 @@ bot.on('interactionCreate', async interaction => {
 
     if (interaction.isChatInputCommand() && 
         interaction.commandName === 'panel') {
-        // Enforces the channel restriction roadblock rule natively
         if (interaction.channelId !== ALLOWED_CHANNEL_ID) {
             return await interaction.reply({ 
                 content: `❌ This command can only be used in <#${ALLOWED_CHANNEL_ID}>.`, 
@@ -176,6 +175,19 @@ bot.on('interactionCreate', async interaction => {
         const serverId = interaction.fields.getTextInputValue('server_id');
 
         await interaction.deferUpdate();
+        
+        // IMMEDIATE UPDATE: Flips panel to active state right when Submit is pressed
+        try {
+            const chan = await bot.channels.fetch(interaction.channelId);
+            const msg = await chan.messages.fetch(targetMessageId);
+            await msg.edit({ 
+                embeds: [getPanelEmbed(userId, true)], 
+                components: [getPanelComponents(userId, true)] 
+            });
+        } catch (editError) { 
+            console.error('Immediate panel edit failed:', editError); 
+        }
+
         if (activeMonitors.has(userId)) {
             try { activeMonitors.get(userId).destroy(); } catch(e){}
             activeMonitors.delete(userId);
@@ -201,20 +213,24 @@ bot.on('interactionCreate', async interaction => {
                 } catch (err) {}
             });
 
-            selfbot.once('ready', async () => {
-                try {
-                    const chan = await bot.channels.fetch(interaction.channelId);
-                    const msg = await chan.messages.fetch(targetMessageId);
-                    await msg.edit({ 
-                        embeds: [getPanelEmbed(userId, true)], 
-                        components: [getPanelComponents(userId, true)] 
-                    });
-                } catch (e) {}
+            selfbot.once('ready', () => {
+                console.log(`Selfbot logged in and active for server: ${serverId}`);
             });
 
             await selfbot.login(userToken);
         } catch (error) {
+            console.error('Selfbot login failed:', error);
             if (activeMonitors.has(userId)) activeMonitors.delete(userId);
+            
+            // Revert panel to stopped state if the login fails or crashes
+            try {
+                const chan = await bot.channels.fetch(interaction.channelId);
+                const msg = await chan.messages.fetch(targetMessageId);
+                await msg.edit({ 
+                    embeds: [getPanelEmbed(userId, false)], 
+                    components: [getPanelComponents(userId, false)] 
+                });
+            } catch (revertError) { console.error(revertError); }
         }
     }
 });
