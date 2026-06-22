@@ -8,7 +8,7 @@ const { Client: SelfbotClient } = require('discord.js-selfbot-v13');
 
 const BOT_TOKEN = process.env.BOT_TOKEN;
 const CLIENT_ID = process.env.CLIENT_ID;
-const ALLOWED_GUILD_ID = "1493598034544820284"; 
+const ALLOWED_CHANNEL_ID = "1518442820875194398"; // Locked to specific channel ID
 const activeMonitors = new Map();
 
 const bot = new Client({
@@ -98,9 +98,10 @@ bot.on('interactionCreate', async interaction => {
 
     if (interaction.isChatInputCommand() && 
         interaction.commandName === 'panel') {
-        if (interaction.guildId !== ALLOWED_GUILD_ID) {
+        // Enforces the channel restriction roadblock rule natively
+        if (interaction.channelId !== ALLOWED_CHANNEL_ID) {
             return await interaction.reply({ 
-                content: '❌ Wrong server.', 
+                content: `❌ This command can only be used in <#${ALLOWED_CHANNEL_ID}>.`, 
                 ephemeral: true 
             });
         }
