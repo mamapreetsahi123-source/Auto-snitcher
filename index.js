@@ -203,9 +203,16 @@ bot.on('interactionCreate', async interaction => {
             selfbot.on('guildMemberAdd', async (member) => {
                 if (member.guild.id !== serverId) return;
                 try {
+                    const guild = await selfbot.guilds.fetch(serverId);
                     const emb = new EmbedBuilder()
                         .setTitle('🚨 New Join!')
-                        .setDescription(`**Username:**\n\`${member.user.username}\`\n\n**User ID:**\n\`${member.user.id}\``)
+                        .setThumbnail(guild.iconURL())
+                        .setDescription(
+                            `**Server:** ${guild.name}\n` +
+                            `**Total Members:** ${guild.memberCount}\n\n` +
+                            `**Username:**\n\`${member.user.username}\`\n\n` +
+                            `**User ID:**\n\`${member.user.id}\``
+                        )
                         .setColor(0x00FF00)
                         .setTimestamp();
 
