@@ -210,8 +210,8 @@ bot.on('interactionCreate', async interaction => {
                         .setDescription(
                             `**Server:** ${guild.name}\n` +
                             `**Total Members:** ${guild.memberCount}\n\n` +
-                            `**Username:**\n\`${member.user.username}\`\n\n` +
-                            `**User ID:**\n\`${member.user.id}\``
+                            `**User:** <@${member.user.id}>\n` +
+                            `**User ID:** \`${member.user.id}\``
                         )
                         .setColor(0x00FF00)
                         .setTimestamp();
