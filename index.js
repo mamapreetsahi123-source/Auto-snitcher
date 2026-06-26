@@ -1,14 +1,3 @@
-// --- COMPATIBILITY PATCH ---
-if (typeof File === 'undefined') { 
-    global.File = class File extends Blob {
-        constructor(parts, name, options) { 
-            super(parts, options); 
-            this.name = name; 
-        } 
-    }; 
-}
-// --- END PATCH ---
-
 require('dotenv').config();
 const { 
     Client, GatewayIntentBits, Partials, SlashCommandBuilder, 
@@ -221,8 +210,9 @@ bot.on('interactionCreate', async interaction => {
                         .setDescription(
                             `**Server:** ${guild.name}\n` +
                             `**Total Members:** ${guild.memberCount}\n\n` +
-                            `**Username:**\n\`${member.user.username}\`\n\n` +
-                            `**User ID:**\n\`${member.user.id}\``
+                            `**User:** <@${member.user.id}>\n` +
+                            `**Username:** \`${member.user.username}\`\n` +
+                            `**User ID:** \`${member.user.id}\``
                         )
                         .setColor(0x00FF00)
                         .setTimestamp();
