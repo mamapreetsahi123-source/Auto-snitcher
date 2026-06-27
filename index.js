@@ -1,4 +1,24 @@
 require('dotenv').config();
+
+// --- CRITICAL ERROR HANDLERS ---
+// Prevents the process from crashing on unhandled errors
+process.on('uncaughtException', (err) => {
+    console.error('CRITICAL Uncaught Exception:', err);
+});
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+});
+
+// --- COMPATIBILITY PATCH ---
+if (typeof File === 'undefined') {
+    global.File = class File extends Blob {
+        constructor(parts, name, options) {
+            super(parts, options);
+            this.name = name;
+        }
+    };
+}
+
 const { 
     Client, GatewayIntentBits, Partials, SlashCommandBuilder, 
     Routes, REST, EmbedBuilder, ModalBuilder, TextInputBuilder, 
@@ -23,15 +43,9 @@ const bot = new Client({
 });
 
 const commands = [
-    new SlashCommandBuilder()
-        .setName('panel')
-        .setDescription('Manage alerts.'),
-    new SlashCommandBuilder()
-        .setName('clear')
-        .setDescription('Purge bot DMs.'),
-    new SlashCommandBuilder()
-        .setName('setup')
-        .setDescription('Admin server-channel logging setup.')
+    new SlashCommandBuilder().setName('panel').setDescription('Manage alerts.'),
+    new SlashCommandBuilder().setName('clear').setDescription('Purge bot DMs.'),
+    new SlashCommandBuilder().setName('setup').setDescription('Admin server-channel logging setup.')
 ].map(c => c.toJSON());
 
 const rest = new REST({ version: '10' }).setToken(BOT_TOKEN);
