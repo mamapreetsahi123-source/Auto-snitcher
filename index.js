@@ -59,6 +59,11 @@ const rest = new REST({ version: '10' }).setToken(BOT_TOKEN);
 
 bot.once('ready', () => console.log('Bot ready'));
 
+// HEARTBEAT TO KEEP PROCESS ACTIVE
+setInterval(() => {
+    console.log(`[HEARTBEAT] Bot active. Memory: ${Math.round(process.memoryUsage().heapUsed / 1024 / 1024)}MB`);
+}, 300000); 
+
 function getPanelComponents(uid, run, isSetup = false) {
     const type = isSetup ? 'setup' : 'panel';
     const b1 = new ButtonBuilder()
