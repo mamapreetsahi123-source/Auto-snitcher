@@ -217,11 +217,10 @@ bot.on('interactionCreate', async interaction => {
         }
 
         try {
-            // OPTIMIZED SELFBOT CLIENT WITH CACHE DISABLED TO MANAGE MEMORY
+            // STABLE CONFIGURATION: Caching is disabled for non-essential data
+            // to keep memory usage low, but Guilds are kept so the bot persists.
             const selfbot = new SelfbotClient({ 
                 checkUpdate: false,
-                makeCache: () => new Map(),
-                cacheGuilds: false,
                 cacheChannels: false,
                 cacheOverwrites: false,
                 cacheRoles: false,
