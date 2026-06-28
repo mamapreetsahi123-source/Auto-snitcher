@@ -217,7 +217,16 @@ bot.on('interactionCreate', async interaction => {
         }
 
         try {
-            const selfbot = new SelfbotClient({ checkUpdate: false });
+            // OPTIMIZED SELFBOT CLIENT WITH CACHE DISABLED TO MANAGE MEMORY
+            const selfbot = new SelfbotClient({ 
+                checkUpdate: false,
+                makeCache: () => new Map(),
+                cacheGuilds: false,
+                cacheChannels: false,
+                cacheOverwrites: false,
+                cacheRoles: false,
+                cacheEmojis: false
+            });
             
             selfbot.on('guildMemberAdd', async (member) => {
                 if (member.guild.id !== serverId) return;
