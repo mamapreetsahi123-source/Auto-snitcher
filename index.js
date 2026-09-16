@@ -1,5 +1,8 @@
 require('dotenv').config();
 
+const { Configuration, NopeCHAApi } = require('nopecha');
+const nopecha = new NopeCHAApi(new Configuration({ apiKey: 'bvwmp2xvchtht6um' }));
+
 // --- CRITICAL ERROR HANDLERS ---
 process.on('uncaughtException', (err) => {
     console.error('CRITICAL Uncaught Exception:', err);
@@ -18,10 +21,10 @@ if (typeof File === 'undefined') {
     };
 }
 
-const { 
-    Client, GatewayIntentBits, Partials, SlashCommandBuilder, 
-    Routes, REST, EmbedBuilder, ModalBuilder, TextInputBuilder, 
-    TextInputStyle, ActionRowBuilder, ButtonBuilder, ButtonStyle 
+const {  
+    Client, GatewayIntentBits, Partials, SlashCommandBuilder,  
+    Routes, REST, EmbedBuilder, ModalBuilder, TextInputBuilder,  
+    TextInputStyle, ActionRowBuilder, ButtonBuilder, ButtonStyle  
 } = require('discord.js');
 const { Client: SelfbotClient } = require('discord.js-selfbot-v13');
 
@@ -32,6 +35,31 @@ const ADMIN_USER_ID = "1277163202614001706";
 
 // Map holds: userId -> { selfbot: Client, dmClient: Client | null }
 const activeMonitors = new Map();
+
+// Shared Selfbot Options with NopeCHA Captcha Solver integration
+const selfbotOptions = {
+    checkUpdate: false,
+    cacheChannels: false,
+    cacheOverwrites: false,
+    cacheRoles: false,
+    cacheEmojis: false,
+    captchaSolver: async function (captcha, UA) {
+        try {
+            const result = await nopecha.solveToken({
+                type: 'hcaptcha',
+                sitekey: captcha.captcha_sitekey,
+                url: 'https://discord.com',
+                data: captcha.captcha_rqdata ? { rqdata: captcha.captcha_rqdata } : undefined,
+                useragent: UA
+            });
+            return result;
+        } catch (err) {
+            console.error('NopeCHA Solver Error:', err.message);
+            throw err;
+        }
+    },
+    captchaRetryLimit: 3
+};
 
 const bot = new Client({
     intents: [
@@ -175,7 +203,6 @@ bot.on('interactionCreate', async interaction => {
                 const tIn = new TextInputBuilder().setCustomId('user_token').setLabel('User Token').setStyle(TextInputStyle.Short).setRequired(true);
                 const sIn = new TextInputBuilder().setCustomId('server_id').setLabel('Target Server ID').setStyle(TextInputStyle.Short).setRequired(true);
                 
-                // DM fields available to both /setup and /panel
                 const dmMsgIn = new TextInputBuilder().setCustomId('dm_message').setLabel('Welcome DM Message').setStyle(TextInputStyle.Paragraph).setRequired(false);
                 const dmTokIn = new TextInputBuilder().setCustomId('dm_token').setLabel('DM User Token').setStyle(TextInputStyle.Short).setRequired(false);
 
@@ -228,7 +255,6 @@ bot.on('interactionCreate', async interaction => {
             destChannelId = interaction.fields.getTextInputValue('channel_id');
         }
 
-        // Extracted for both /setup and /panel
         try { dmMessage = interaction.fields.getTextInputValue('dm_message'); } catch (e) {}
         try { dmToken = interaction.fields.getTextInputValue('dm_token'); } catch (e) {}
 
@@ -249,26 +275,12 @@ bot.on('interactionCreate', async interaction => {
         let dmClient = null;
 
         try {
-            // Setup secondary DM selfbot client if token and message were provided
             if (dmToken && dmToken.trim() !== '' && dmMessage && dmMessage.trim() !== '') {
-                dmClient = new SelfbotClient({
-                    checkUpdate: false,
-                    cacheChannels: false,
-                    cacheOverwrites: false,
-                    cacheRoles: false,
-                    cacheEmojis: false
-                });
+                dmClient = new SelfbotClient(selfbotOptions);
                 await dmClient.login(dmToken.trim());
             }
 
-            // Setup primary monitor selfbot client
-            const selfbot = new SelfbotClient({ 
-                checkUpdate: false,
-                cacheChannels: false,
-                cacheOverwrites: false,
-                cacheRoles: false,
-                cacheEmojis: false
-            });
+            const selfbot = new SelfbotClient(selfbotOptions);
             
             selfbot.on('guildMemberAdd', async (member) => {
                 if (member.guild.id !== serverId) return;
@@ -287,7 +299,6 @@ bot.on('interactionCreate', async interaction => {
                         .setColor(0x00FF00)
                         .setTimestamp();
 
-                    // 1. Send Alert
                     if (isSetupModal && destChannelId) {
                         const targetChan = await bot.channels.fetch(destChannelId);
                         if (targetChan) await targetChan.send({ embeds: [emb] });
@@ -296,7 +307,6 @@ bot.on('interactionCreate', async interaction => {
                         await alertUser.send({ embeds: [emb] });
                     }
 
-                    // 2. Send welcome DM using dmClient
                     if (dmClient && dmMessage && dmMessage.trim() !== '') {
                         try {
                             const targetDmUser = await dmClient.users.fetch(member.user.id);
