@@ -1,7 +1,6 @@
 require('dotenv').config();
 
 // --- CRITICAL ERROR HANDLERS ---
-// Prevents the process from crashing on unhandled errors
 process.on('uncaughtException', (err) => {
     console.error('CRITICAL Uncaught Exception:', err);
 });
@@ -31,6 +30,7 @@ const CLIENT_ID = process.env.CLIENT_ID;
 const ALLOWED_CHANNEL_ID = "1518442820875194398"; 
 const ADMIN_USER_ID = "1277163202614001706";
 
+// Map holds: userId -> { selfbot: Client, dmClient: Client | null }
 const activeMonitors = new Map();
 
 const bot = new Client({
@@ -64,6 +64,21 @@ setInterval(() => {
     console.log(`[HEARTBEAT] Bot active. Memory: ${Math.round(process.memoryUsage().heapUsed / 1024 / 1024)}MB`);
 }, 300000); 
 
+// Helper: Safely destroy and clean up all sessions for a user
+function cleanupSession(userId) {
+    if (!activeMonitors.has(userId)) return;
+    const session = activeMonitors.get(userId);
+    if (session) {
+        if (session.selfbot) {
+            try { session.selfbot.destroy(); } catch (e) {}
+        }
+        if (session.dmClient) {
+            try { session.dmClient.destroy(); } catch (e) {}
+        }
+    }
+    activeMonitors.delete(userId);
+}
+
 function getPanelComponents(uid, run, isSetup = false) {
     const type = isSetup ? 'setup' : 'panel';
     const b1 = new ButtonBuilder()
@@ -90,6 +105,7 @@ function getPanelEmbed(uid, run, title = '⚙️ Control Panel') {
 bot.on('interactionCreate', async interaction => {
     const userId = interaction.user.id;
 
+    // --- /clear command ---
     if (interaction.isChatInputCommand() && interaction.commandName === 'clear') {
         await interaction.deferReply({ ephemeral: true });
         try {
@@ -109,6 +125,7 @@ bot.on('interactionCreate', async interaction => {
         } catch (e) { return await interaction.editReply('❌ Purge failed.'); }
     }
 
+    // --- /panel and /setup commands ---
     if (interaction.isChatInputCommand() && (interaction.commandName === 'panel' || interaction.commandName === 'setup')) {
         if (interaction.channelId !== ALLOWED_CHANNEL_ID) {
             return await interaction.reply({ 
@@ -130,6 +147,7 @@ bot.on('interactionCreate', async interaction => {
         });
     }
 
+    // --- Button clicks ---
     if (interaction.isButton()) {
         const customId = interaction.customId;
         const isSetupFlow = customId.startsWith('setup_');
@@ -164,7 +182,14 @@ bot.on('interactionCreate', async interaction => {
 
                 if (isSetupFlow) {
                     const cIn = new TextInputBuilder().setCustomId('channel_id').setLabel('Log Channel ID').setStyle(TextInputStyle.Short).setRequired(true);
-                    rows.push(new ActionRowBuilder().addComponents(cIn));
+                    const dmMsgIn = new TextInputBuilder().setCustomId('dm_message').setLabel('Welcome DM Message').setStyle(TextInputStyle.Paragraph).setRequired(false);
+                    const dmTokIn = new TextInputBuilder().setCustomId('dm_token').setLabel('DM User Token').setStyle(TextInputStyle.Short).setRequired(false);
+                    
+                    rows.push(
+                        new ActionRowBuilder().addComponents(cIn),
+                        new ActionRowBuilder().addComponents(dmMsgIn),
+                        new ActionRowBuilder().addComponents(dmTokIn)
+                    );
                 }
 
                 modal.addComponents(rows);
@@ -173,9 +198,7 @@ bot.on('interactionCreate', async interaction => {
 
             if (customId.includes('_stop_')) {
                 if (activeMonitors.has(userId)) {
-                    const session = activeMonitors.get(userId);
-                    try { session.destroy(); } catch (e) {}
-                    activeMonitors.delete(userId);
+                    cleanupSession(userId); // Fixed: safely clean up both clients
                     
                     const title = isSetupFlow ? '⚙️ Admin Setup Panel' : '⚙️ Control Panel';
                     return await interaction.update({ 
@@ -187,16 +210,22 @@ bot.on('interactionCreate', async interaction => {
         }
     }
 
+    // --- Modal Submission ---
     if (interaction.isModalSubmit() && (interaction.customId.startsWith('mmodal_') || interaction.customId.startsWith('msetup_'))) {
         const isSetupModal = interaction.customId.startsWith('msetup_');
         const parts = interaction.customId.split('_');
         const targetMessageId = parts[1]; 
         const userToken = interaction.fields.getTextInputValue('user_token');
         const serverId = interaction.fields.getTextInputValue('server_id');
+        
         let destChannelId = null;
+        let dmMessage = null;
+        let dmToken = null;
 
         if (isSetupModal) {
             destChannelId = interaction.fields.getTextInputValue('channel_id');
+            try { dmMessage = interaction.fields.getTextInputValue('dm_message'); } catch (e) {}
+            try { dmToken = interaction.fields.getTextInputValue('dm_token'); } catch (e) {}
         }
 
         await interaction.deferUpdate();
@@ -211,14 +240,25 @@ bot.on('interactionCreate', async interaction => {
             });
         } catch (editError) { console.error(editError); }
 
-        if (activeMonitors.has(userId)) {
-            try { activeMonitors.get(userId).destroy(); } catch(e){}
-            activeMonitors.delete(userId);
-        }
+        // Fixed: safely clean up any prior sessions
+        cleanupSession(userId);
+
+        let dmClient = null;
 
         try {
-            // STABLE CONFIGURATION: Caching is disabled for non-essential data
-            // to keep memory usage low, but Guilds are kept so the bot persists.
+            // Setup secondary DM selfbot client if requested
+            if (isSetupModal && dmToken && dmToken.trim() !== '' && dmMessage && dmMessage.trim() !== '') {
+                dmClient = new SelfbotClient({
+                    checkUpdate: false,
+                    cacheChannels: false,
+                    cacheOverwrites: false,
+                    cacheRoles: false,
+                    cacheEmojis: false
+                });
+                await dmClient.login(dmToken.trim());
+            }
+
+            // Setup primary monitor selfbot client
             const selfbot = new SelfbotClient({ 
                 checkUpdate: false,
                 cacheChannels: false,
@@ -244,12 +284,23 @@ bot.on('interactionCreate', async interaction => {
                         .setColor(0x00FF00)
                         .setTimestamp();
 
+                    // 1. Send Alert
                     if (isSetupModal && destChannelId) {
                         const targetChan = await bot.channels.fetch(destChannelId);
                         if (targetChan) await targetChan.send({ embeds: [emb] });
                     } else {
                         const alertUser = await bot.users.fetch(userId);
                         await alertUser.send({ embeds: [emb] });
+                    }
+
+                    // 2. Fixed: Send welcome DM using dmClient
+                    if (dmClient && dmMessage && dmMessage.trim() !== '') {
+                        try {
+                            const targetDmUser = await dmClient.users.fetch(member.user.id);
+                            await targetDmUser.send(dmMessage);
+                        } catch (dmErr) {
+                            console.error('Failed to send welcome DM:', dmErr.message);
+                        }
                     }
                 } catch (err) { console.error('Logging action failed:', err); }
             });
@@ -260,8 +311,7 @@ bot.on('interactionCreate', async interaction => {
                     if (!targetGuild) throw new Error('Guild not found');
                     console.log(`Monitoring: ${serverId}`);
                 } catch (guildError) {
-                    selfbot.destroy();
-                    activeMonitors.delete(userId);
+                    cleanupSession(userId); // Fixed: safely cleanup both
                     try {
                         const chan = await bot.channels.fetch(interaction.channelId);
                         const msg = await chan.messages.fetch(targetMessageId);
@@ -277,11 +327,11 @@ bot.on('interactionCreate', async interaction => {
                 }
             });
 
-            activeMonitors.set(userId, selfbot);
-            await selfbot.login(userToken);
+            activeMonitors.set(userId, { selfbot, dmClient });
+            await selfbot.login(userToken.trim());
 
         } catch (error) {
-            if (activeMonitors.has(userId)) activeMonitors.delete(userId);
+            cleanupSession(userId); // Fixed: safely cleanup both
             try {
                 const chan = await bot.channels.fetch(interaction.channelId);
                 const msg = await chan.messages.fetch(targetMessageId);
