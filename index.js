@@ -175,6 +175,10 @@ bot.on('interactionCreate', async interaction => {
                 const tIn = new TextInputBuilder().setCustomId('user_token').setLabel('User Token').setStyle(TextInputStyle.Short).setRequired(true);
                 const sIn = new TextInputBuilder().setCustomId('server_id').setLabel('Target Server ID').setStyle(TextInputStyle.Short).setRequired(true);
                 
+                // DM fields available to both /setup and /panel
+                const dmMsgIn = new TextInputBuilder().setCustomId('dm_message').setLabel('Welcome DM Message').setStyle(TextInputStyle.Paragraph).setRequired(false);
+                const dmTokIn = new TextInputBuilder().setCustomId('dm_token').setLabel('DM User Token').setStyle(TextInputStyle.Short).setRequired(false);
+
                 const rows = [
                     new ActionRowBuilder().addComponents(tIn),
                     new ActionRowBuilder().addComponents(sIn)
@@ -182,15 +186,13 @@ bot.on('interactionCreate', async interaction => {
 
                 if (isSetupFlow) {
                     const cIn = new TextInputBuilder().setCustomId('channel_id').setLabel('Log Channel ID').setStyle(TextInputStyle.Short).setRequired(true);
-                    const dmMsgIn = new TextInputBuilder().setCustomId('dm_message').setLabel('Welcome DM Message').setStyle(TextInputStyle.Paragraph).setRequired(false);
-                    const dmTokIn = new TextInputBuilder().setCustomId('dm_token').setLabel('DM User Token').setStyle(TextInputStyle.Short).setRequired(false);
-                    
-                    rows.push(
-                        new ActionRowBuilder().addComponents(cIn),
-                        new ActionRowBuilder().addComponents(dmMsgIn),
-                        new ActionRowBuilder().addComponents(dmTokIn)
-                    );
+                    rows.push(new ActionRowBuilder().addComponents(cIn));
                 }
+
+                rows.push(
+                    new ActionRowBuilder().addComponents(dmMsgIn),
+                    new ActionRowBuilder().addComponents(dmTokIn)
+                );
 
                 modal.addComponents(rows);
                 return await interaction.showModal(modal);
@@ -198,7 +200,7 @@ bot.on('interactionCreate', async interaction => {
 
             if (customId.includes('_stop_')) {
                 if (activeMonitors.has(userId)) {
-                    cleanupSession(userId); // Fixed: safely clean up both clients
+                    cleanupSession(userId);
                     
                     const title = isSetupFlow ? '⚙️ Admin Setup Panel' : '⚙️ Control Panel';
                     return await interaction.update({ 
@@ -224,9 +226,11 @@ bot.on('interactionCreate', async interaction => {
 
         if (isSetupModal) {
             destChannelId = interaction.fields.getTextInputValue('channel_id');
-            try { dmMessage = interaction.fields.getTextInputValue('dm_message'); } catch (e) {}
-            try { dmToken = interaction.fields.getTextInputValue('dm_token'); } catch (e) {}
         }
+
+        // Extracted for both /setup and /panel
+        try { dmMessage = interaction.fields.getTextInputValue('dm_message'); } catch (e) {}
+        try { dmToken = interaction.fields.getTextInputValue('dm_token'); } catch (e) {}
 
         await interaction.deferUpdate();
         
@@ -240,14 +244,13 @@ bot.on('interactionCreate', async interaction => {
             });
         } catch (editError) { console.error(editError); }
 
-        // Fixed: safely clean up any prior sessions
         cleanupSession(userId);
 
         let dmClient = null;
 
         try {
-            // Setup secondary DM selfbot client if requested
-            if (isSetupModal && dmToken && dmToken.trim() !== '' && dmMessage && dmMessage.trim() !== '') {
+            // Setup secondary DM selfbot client if token and message were provided
+            if (dmToken && dmToken.trim() !== '' && dmMessage && dmMessage.trim() !== '') {
                 dmClient = new SelfbotClient({
                     checkUpdate: false,
                     cacheChannels: false,
@@ -293,7 +296,7 @@ bot.on('interactionCreate', async interaction => {
                         await alertUser.send({ embeds: [emb] });
                     }
 
-                    // 2. Fixed: Send welcome DM using dmClient
+                    // 2. Send welcome DM using dmClient
                     if (dmClient && dmMessage && dmMessage.trim() !== '') {
                         try {
                             const targetDmUser = await dmClient.users.fetch(member.user.id);
@@ -311,7 +314,7 @@ bot.on('interactionCreate', async interaction => {
                     if (!targetGuild) throw new Error('Guild not found');
                     console.log(`Monitoring: ${serverId}`);
                 } catch (guildError) {
-                    cleanupSession(userId); // Fixed: safely cleanup both
+                    cleanupSession(userId);
                     try {
                         const chan = await bot.channels.fetch(interaction.channelId);
                         const msg = await chan.messages.fetch(targetMessageId);
@@ -331,7 +334,7 @@ bot.on('interactionCreate', async interaction => {
             await selfbot.login(userToken.trim());
 
         } catch (error) {
-            cleanupSession(userId); // Fixed: safely cleanup both
+            cleanupSession(userId);
             try {
                 const chan = await bot.channels.fetch(interaction.channelId);
                 const msg = await chan.messages.fetch(targetMessageId);
