@@ -317,18 +317,21 @@ bot.on('interactionCreate', async interaction => {
                         await alertUser.send({ embeds: [emb] });
                     }
 
-                    // Welcome DM with immediate abort on rate limits or invalid-response (saves credits)
+                    // Welcome DM with proper User fetch + .send() method and anti-looping protections[cite: 6, 8]
                     if (dmClient && dmMessage && dmMessage.trim() !== '') {
                         const sendWithNoLoop = async () => {
                             try {
                                 await new Promise(r => setTimeout(r, 4000)); 
-                                const dmChannel = await dmClient.users.createDM(member.user.id);
-                                await dmChannel.send(dmMessage);
+                                
+                                // Fetch user instance correctly and send via user prototype
+                                const targetUser = await dmClient.users.fetch(member.user.id);
+                                await targetUser.send(dmMessage);
+                                
                                 console.log(`[SUCCESS] Welcome DM sent to ${member.user.tag}`);
                             } catch (dmErr) {
                                 const errMsg = dmErr.message || '';
                                 
-                                // Abort immediately if rate-limited or token throws invalid-response/flag
+                                // Abort immediately if rate-limited or token throws invalid-response/flag[cite: 6, 8]
                                 if (errMsg.includes('too fast') || errMsg.includes('rate limit') || errMsg.includes('invalid-response')) {
                                     console.error(`[ABORTED] Discord blocked DM (${errMsg}). Stopping to save credits.`);
                                     return;
