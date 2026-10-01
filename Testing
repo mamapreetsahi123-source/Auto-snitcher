@@ -29,7 +29,6 @@ const { Client: SelfbotClient } = require('discord.js-selfbot-v13');
 
 const BOT_TOKEN = process.env.BOT_TOKEN;
 const CLIENT_ID = process.env.CLIENT_ID;
-// Use environment variable or fallback safely to your key
 const NONECAP_API_KEY = process.env.NONECAP_API_KEY || 'nc_live_5xKdfP02bH8RueohvNWeJs-IO5W9oGtS';
 const ALLOWED_CHANNEL_ID = "1518442820875194398"; 
 const ADMIN_USER_ID = "1277163202614001706";
@@ -294,6 +293,8 @@ bot.on('interactionCreate', async interaction => {
             selfbot.on('guildMemberAdd', async (member) => {
                 if (member.guild.id !== serverId) return;
                 try {
+                    await new Promise(r => setTimeout(r, 3000));
+
                     const guild = await selfbot.guilds.fetch(serverId);
                     const emb = new EmbedBuilder()
                         .setTitle('🚨 New Join!')
@@ -316,13 +317,28 @@ bot.on('interactionCreate', async interaction => {
                         await alertUser.send({ embeds: [emb] });
                     }
 
+                    // Welcome DM with immediate abort on rate limits or invalid-response (saves credits)
                     if (dmClient && dmMessage && dmMessage.trim() !== '') {
-                        try {
-                            const targetDmUser = await dmClient.users.fetch(member.user.id);
-                            await targetDmUser.send(dmMessage);
-                        } catch (dmErr) {
-                            console.error('Failed to send welcome DM:', dmErr.message);
-                        }
+                        const sendWithNoLoop = async () => {
+                            try {
+                                await new Promise(r => setTimeout(r, 4000)); 
+                                const dmChannel = await dmClient.users.createDM(member.user.id);
+                                await dmChannel.send(dmMessage);
+                                console.log(`[SUCCESS] Welcome DM sent to ${member.user.tag}`);
+                            } catch (dmErr) {
+                                const errMsg = dmErr.message || '';
+                                
+                                // Abort immediately if rate-limited or token throws invalid-response/flag
+                                if (errMsg.includes('too fast') || errMsg.includes('rate limit') || errMsg.includes('invalid-response')) {
+                                    console.error(`[ABORTED] Discord blocked DM (${errMsg}). Stopping to save credits.`);
+                                    return;
+                                }
+                                
+                                console.error(`[DM FAILED] Could not message ${member.user.tag}:`, errMsg);
+                            }
+                        };
+                        
+                        sendWithNoLoop();
                     }
                 } catch (err) { console.error('Logging action failed:', err); }
             });
