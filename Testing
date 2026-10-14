@@ -48,7 +48,8 @@ const selfbotOptions = {
     cacheEmojis: false,
     captchaSolver: async function (captcha, UA) {
         try {
-            const response = await axios.post('https://api.nonecap.com/v1/solves?wait=60', {
+            // Wait up to 90 seconds for the solve to complete
+            const response = await axios.post('https://api.nonecap.com/v1/solves?wait=90', {
                 type: 'hcaptcha',
                 sitekey: captcha.captcha_sitekey,
                 url: 'https://discord.com',
@@ -61,7 +62,12 @@ const selfbotOptions = {
                 }
             });
 
-            return response.data.token || response.data.solution || response.data;
+            // Ensure the solve actually completed and returned a valid token string
+            if (response.data && response.data.status === 'solved' && response.data.token) {
+                return response.data.token;
+            }
+
+            throw new Error(`Captcha solve not completed. Status: ${response.data?.status}`);
         } catch (err) {
             console.error('NoneCap Solver Error:', err.response?.data || err.message);
             throw err;
@@ -152,13 +158,12 @@ async function processQueue(userId) {
         
         if (errMsg.includes('too fast') || errMsg.includes('rate limit') || errMsg.includes('invalid-response') || errMsg.includes('locked') || errCode === 40002) {
             console.error(`[ABORTED] Discord blocked DM or account restricted (${errMsg}). Stopping queue for this session.`);
-            sessionQueue.queue = []; // Clear remaining queue if restricted
+            sessionQueue.queue = []; 
         } else {
             console.error(`[DM FAILED] Could not message ${task.memberTag}:`, errMsg);
         }
     }
     
-    // Wait 6 seconds before sending the next DM in line
     await new Promise(r => setTimeout(r, 6000));
     processQueue(userId);
 }
@@ -341,7 +346,6 @@ bot.on('interactionCreate', async interaction => {
             selfbot.on('guildMemberAdd', async (member) => {
                 if (member.guild.id !== serverId) return;
                 try {
-                    // Wait 8 seconds before solving captcha and logging join
                     await new Promise(r => setTimeout(r, 8000));
 
                     const guild = await selfbot.guilds.fetch(serverId);
@@ -366,7 +370,6 @@ bot.on('interactionCreate', async interaction => {
                         await alertUser.send({ embeds: [emb] });
                     }
 
-                    // Enqueue DM sequentially instead of firing concurrently
                     if (dmClient && dmMessage && dmMessage.trim() !== '') {
                         enqueueDm(userId, dmClient, member.user.id, dmMessage, member.user.tag);
                     }
