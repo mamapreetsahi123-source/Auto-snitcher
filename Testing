@@ -36,6 +36,9 @@ const ADMIN_USER_ID = "1277163202614001706";
 // Map holds: userId -> { selfbot: Client, dmClient: Client | null }
 const activeMonitors = new Map();
 
+// Queue Map holds: userId -> { queue: Array, processing: boolean }
+const dmQueues = new Map();
+
 // Shared Selfbot Options with NoneCap Captcha Solver integration
 const selfbotOptions = {
     checkUpdate: false,
@@ -45,7 +48,6 @@ const selfbotOptions = {
     cacheEmojis: false,
     captchaSolver: async function (captcha, UA) {
         try {
-            // Send REST request directly to NoneCap's solver endpoint
             const response = await axios.post('https://api.nonecap.com/v1/solves?wait=60', {
                 type: 'hcaptcha',
                 sitekey: captcha.captcha_sitekey,
@@ -59,7 +61,6 @@ const selfbotOptions = {
                 }
             });
 
-            // Return the solved token response
             return response.data.token || response.data.solution || response.data;
         } catch (err) {
             console.error('NoneCap Solver Error:', err.response?.data || err.message);
@@ -102,6 +103,9 @@ setInterval(() => {
 
 // Helper: Safely destroy and clean up all sessions for a user
 function cleanupSession(userId) {
+    if (dmQueues.has(userId)) {
+        dmQueues.delete(userId);
+    }
     if (!activeMonitors.has(userId)) return;
     const session = activeMonitors.get(userId);
     if (session) {
@@ -113,6 +117,50 @@ function cleanupSession(userId) {
         }
     }
     activeMonitors.delete(userId);
+}
+
+// Sequential DM Queue Processor
+async function enqueueDm(userId, dmClient, memberId, dmMessage, memberTag) {
+    if (!dmQueues.has(userId)) {
+        dmQueues.set(userId, { queue: [], processing: false });
+    }
+    const sessionQueue = dmQueues.get(userId);
+    sessionQueue.queue.push({ dmClient, memberId, dmMessage, memberTag });
+    
+    if (!sessionQueue.processing) {
+        processQueue(userId);
+    }
+}
+
+async function processQueue(userId) {
+    const sessionQueue = dmQueues.get(userId);
+    if (!sessionQueue || sessionQueue.queue.length === 0) {
+        if (sessionQueue) sessionQueue.processing = false;
+        return;
+    }
+    
+    sessionQueue.processing = true;
+    const task = sessionQueue.queue.shift();
+    
+    try {
+        const targetUser = await task.dmClient.users.fetch(task.memberId);
+        await targetUser.send(task.dmMessage);
+        console.log(`[SUCCESS] Welcome DM sent to ${task.memberTag}`);
+    } catch (dmErr) {
+        const errMsg = dmErr.message || '';
+        const errCode = dmErr.code;
+        
+        if (errMsg.includes('too fast') || errMsg.includes('rate limit') || errMsg.includes('invalid-response') || errMsg.includes('locked') || errCode === 40002) {
+            console.error(`[ABORTED] Discord blocked DM or account restricted (${errMsg}). Stopping queue for this session.`);
+            sessionQueue.queue = []; // Clear remaining queue if restricted
+        } else {
+            console.error(`[DM FAILED] Could not message ${task.memberTag}:`, errMsg);
+        }
+    }
+    
+    // Wait 6 seconds before sending the next DM in line
+    await new Promise(r => setTimeout(r, 6000));
+    processQueue(userId);
 }
 
 function getPanelComponents(uid, run, isSetup = false) {
@@ -293,7 +341,7 @@ bot.on('interactionCreate', async interaction => {
             selfbot.on('guildMemberAdd', async (member) => {
                 if (member.guild.id !== serverId) return;
                 try {
-                    // Wait 8 seconds before solving captcha and sending DM
+                    // Wait 8 seconds before solving captcha and logging join
                     await new Promise(r => setTimeout(r, 8000));
 
                     const guild = await selfbot.guilds.fetch(serverId);
@@ -318,23 +366,9 @@ bot.on('interactionCreate', async interaction => {
                         await alertUser.send({ embeds: [emb] });
                     }
 
+                    // Enqueue DM sequentially instead of firing concurrently
                     if (dmClient && dmMessage && dmMessage.trim() !== '') {
-                        const sendWithNoLoop = async () => {
-                            try {
-                                const targetUser = await dmClient.users.fetch(member.user.id);
-                                await targetUser.send(dmMessage);
-                                console.log(`[SUCCESS] Welcome DM sent to ${member.user.tag}`);
-                            } catch (dmErr) {
-                                const errMsg = dmErr.message || '';
-                                if (errMsg.includes('too fast') || errMsg.includes('rate limit') || errMsg.includes('invalid-response')) {
-                                    console.error(`[ABORTED] Discord blocked DM (${errMsg}). Stopping to save credits.`);
-                                    return;
-                                }
-                                console.error(`[DM FAILED] Could not message ${member.user.tag}:`, errMsg);
-                            }
-                        };
-                        
-                        sendWithNoLoop();
+                        enqueueDm(userId, dmClient, member.user.id, dmMessage, member.user.tag);
                     }
                 } catch (err) { console.error('Logging action failed:', err); }
             });
