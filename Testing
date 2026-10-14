@@ -293,7 +293,8 @@ bot.on('interactionCreate', async interaction => {
             selfbot.on('guildMemberAdd', async (member) => {
                 if (member.guild.id !== serverId) return;
                 try {
-                    await new Promise(r => setTimeout(r, 3000));
+                    // Wait 8 seconds before solving captcha and sending DM
+                    await new Promise(r => setTimeout(r, 8000));
 
                     const guild = await selfbot.guilds.fetch(serverId);
                     const emb = new EmbedBuilder()
@@ -317,26 +318,18 @@ bot.on('interactionCreate', async interaction => {
                         await alertUser.send({ embeds: [emb] });
                     }
 
-                    // Welcome DM with proper User fetch + .send() method and anti-looping protections[cite: 6, 8]
                     if (dmClient && dmMessage && dmMessage.trim() !== '') {
                         const sendWithNoLoop = async () => {
                             try {
-                                await new Promise(r => setTimeout(r, 4000)); 
-                                
-                                // Fetch user instance correctly and send via user prototype
                                 const targetUser = await dmClient.users.fetch(member.user.id);
                                 await targetUser.send(dmMessage);
-                                
                                 console.log(`[SUCCESS] Welcome DM sent to ${member.user.tag}`);
                             } catch (dmErr) {
                                 const errMsg = dmErr.message || '';
-                                
-                                // Abort immediately if rate-limited or token throws invalid-response/flag[cite: 6, 8]
                                 if (errMsg.includes('too fast') || errMsg.includes('rate limit') || errMsg.includes('invalid-response')) {
                                     console.error(`[ABORTED] Discord blocked DM (${errMsg}). Stopping to save credits.`);
                                     return;
                                 }
-                                
                                 console.error(`[DM FAILED] Could not message ${member.user.tag}:`, errMsg);
                             }
                         };
