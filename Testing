@@ -40,7 +40,7 @@ const activeMonitors = new Map();
 // Queue Map holds: userId -> { queue: Array, processing: boolean }
 const dmQueues = new Map();
 
-// Proxy configuration (Using credentials from your proxy panel)
+// Proxy configuration for Discord traffic
 const PROXY_URL = "http://uidqjnvk:j57c2390c6uj@45.38.107.97:6014"; 
 const proxyAgent = new HttpsProxyAgent(PROXY_URL);
 
@@ -56,6 +56,7 @@ const selfbotOptions = {
     },
     captchaSolver: async function (captcha, UA) {
         try {
+            // NoneCap requested directly without proxy agent to avoid 403 blocks
             const response = await axios.post('https://api.nonecap.com/v1/solves?wait=90', {
                 type: 'hcaptcha',
                 sitekey: captcha.captcha_sitekey,
@@ -66,9 +67,7 @@ const selfbotOptions = {
                 headers: {
                     'Authorization': `Bearer ${NONECAP_API_KEY}`,
                     'Content-Type': 'application/json'
-                },
-                httpAgent: proxyAgent,
-                httpsAgent: proxyAgent
+                }
             });
 
             if (response.data && response.data.status === 'solved' && response.data.token) {
