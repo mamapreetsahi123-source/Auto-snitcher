@@ -1,6 +1,7 @@
 require('dotenv').config();
 
 const axios = require('axios');
+const { HttpsProxyAgent } = require('https-proxy-agent');
 
 // --- CRITICAL ERROR HANDLERS ---
 process.on('uncaughtException', (err) => {
@@ -39,16 +40,22 @@ const activeMonitors = new Map();
 // Queue Map holds: userId -> { queue: Array, processing: boolean }
 const dmQueues = new Map();
 
-// Shared Selfbot Options with NoneCap Captcha Solver integration
+// Proxy configuration (Using credentials from your proxy panel)
+const PROXY_URL = "http://uidqjnvk:j57c2390c6uj@45.38.107.97:6014"; 
+const proxyAgent = new HttpsProxyAgent(PROXY_URL);
+
+// Shared Selfbot Options with Proxy & NoneCap Captcha Solver integration
 const selfbotOptions = {
     checkUpdate: false,
     cacheChannels: false,
     cacheOverwrites: false,
     cacheRoles: false,
     cacheEmojis: false,
+    http: {
+        agent: proxyAgent
+    },
     captchaSolver: async function (captcha, UA) {
         try {
-            // Wait up to 90 seconds for the solve to complete
             const response = await axios.post('https://api.nonecap.com/v1/solves?wait=90', {
                 type: 'hcaptcha',
                 sitekey: captcha.captcha_sitekey,
@@ -59,10 +66,11 @@ const selfbotOptions = {
                 headers: {
                     'Authorization': `Bearer ${NONECAP_API_KEY}`,
                     'Content-Type': 'application/json'
-                }
+                },
+                httpAgent: proxyAgent,
+                httpsAgent: proxyAgent
             });
 
-            // Ensure the solve actually completed and returned a valid token string
             if (response.data && response.data.status === 'solved' && response.data.token) {
                 return response.data.token;
             }
